@@ -1,0 +1,40 @@
+# All hyperparameters live here. Any value can be overridden from the command line:
+#   python -m src.train --set train.lr=0.0005 --set model.hidden_size=128
+seed: 42
+
+data:
+  root: data/TheVGLC                          # where scripts/download_data.py puts the dataset
+  levels_dir: "Super Mario Bros/Processed"    # the 15 level text files
+  legend_file: "Super Mario Bros/smb.json"    # tile legend (it sits one folder above Processed/)
+  expected_rows: 14                           # every SMB level should be 14 tiles tall
+  row_mismatch: pad                           # pad | skip  (what to do if a file is not 14 rows)
+  n_val_levels: 2                             # whole levels held out for validation
+
+model:
+  embed_dim: 64
+  hidden_size: 256
+  num_layers: 2
+  dropout: 0.3
+
+train:
+  window: 16              # input = 16 columns, target = the next column
+  batch_size: 64
+  lr: 0.001
+  max_epochs: 100
+  patience: 10            # early stopping: stop after this many epochs without val improvement
+  checkpoint: checkpoints/best.pt
+
+generate:
+  length: 200             # new columns to generate (seed columns are not included in the output)
+  temperature: 1.0
+  top_k: 0                # 0 = off (sample from the whole vocabulary)
+  n_levels: 3
+  fix_ground: false       # OPTIONAL post-processing, off by default
+  max_gap: 4              # ...gaps in the bottom row wider than this get filled with ground
+  out_dir: outputs/generated
+
+evaluate:
+  temperatures: [0.5, 1.0, 1.5]
+  n_levels: 50            # levels per temperature
+  novelty_window: 8
+  out_dir: outputs/eval

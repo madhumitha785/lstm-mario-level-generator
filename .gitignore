@@ -1,0 +1,16 @@
+# dataset (downloaded at runtime by scripts/download_data.py)
+data/
+# model checkpoints: only the final trained model is committed
+checkpoints/*
+!checkpoints/best.pt
+# bulk generated output (only a few curated samples are committed)
+outputs/generated/
+outputs/eval/per_level.csv
+# caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+venv/
+outputs/notebook/

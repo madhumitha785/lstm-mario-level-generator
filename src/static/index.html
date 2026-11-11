@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LSTM Level Generator</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #16181d; --muted: #5d6470; --line: #e2e5ea;
+    --accent: #2a78d6; --accent-ink: #ffffff; --warn: #b4540a; --good: #1a7f37;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #15171b; --card: #1e2126; --ink: #eceef1; --muted: #a2a9b4; --line: #31353c;
+            --accent: #3987e5; --warn: #f0a050; --good: #4cc26a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 20px 24px 8px; max-width: 1200px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  header p { margin: 0; color: var(--muted); }
+  main { max-width: 1200px; margin: 0 auto; padding: 8px 24px 40px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; margin-top: 16px; }
+  .tabs { display: flex; gap: 8px; margin-top: 12px; }
+  .tab { border: 1px solid var(--line); background: var(--card); color: var(--ink); padding: 7px 14px;
+         border-radius: 999px; cursor: pointer; font: inherit; }
+  .tab[aria-selected="true"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .controls { display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: end; }
+  label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+  label b { color: var(--ink); font-weight: 600; }
+  input[type=number], select { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+         background: var(--bg); color: var(--ink); width: 110px; }
+  input[type=range] { width: 200px; accent-color: var(--accent); }
+  .check { flex-direction: row; align-items: center; gap: 8px; }
+  button.primary { font: inherit; font-weight: 600; background: var(--accent); color: var(--accent-ink); border: 0;
+         padding: 9px 22px; border-radius: 8px; cursor: pointer; }
+  button.secondary { font: inherit; background: transparent; color: var(--ink); border: 1px solid var(--line);
+         padding: 8px 14px; border-radius: 8px; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  .presets { display: flex; gap: 6px; flex-wrap: wrap; }
+  .levelwrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--line); }
+  canvas { display: block; image-rendering: pixelated; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .note { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid rgba(0,0,0,.25); display: inline-block; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .grid2 { display: grid; grid-template-columns: minmax(300px, 380px) minmax(0, 1fr); gap: 16px; }
+  .grid2 > * { min-width: 0; }
+  @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } header, main { padding-left: 16px; padding-right: 16px; } }
+  pre { overflow-x: auto; font: 12px/1.2 ui-monospace, Consolas, monospace; background: var(--bg);
+        padding: 10px; border-radius: 8px; margin: 0; }
+  .charts img { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); background: #fff; margin-top: 10px; }
+  .pan { position: relative; }
+  .pan-label { position: absolute; top: 6px; left: 8px; background: rgba(0,0,0,.65); color: #fff;
+               font-size: 12px; padding: 2px 8px; border-radius: 6px; }
+  .bad { color: var(--warn); } .ok { color: var(--good); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LSTM Level Generator</h1>
+  <p>The model writes a grid of tile characters one column at a time. This page draws that grid. It is not gameplay, and levels are not checked for playability.</p>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-tab="gen">Generate</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="eval">Evaluation results</button>
+  </div>
+</header>
+
+<main>
+<section id="tab-gen">
+  <div class="card">
+    <div class="controls">
+      <label>Temperature <b id="tval">1.00</b>
+        <input id="temperature" type="range" min="0.1" max="2" step="0.05" value="1">
+      </label>
+      <label>Top-k (0 = off)
+        <input id="topk" type="number" min="0" max="218" value="0">
+      </label>
+      <label>Columns
+        <input id="length" type="number" min="16" max="600" value="200">
+      </label>
+      <label>Seed level
+        <select id="seedlevel"><option value="">random</option></select>
+      </label>
+      <label>Random seed
+        <input id="seed" type="number" placeholder="random">
+      </label>
+      <label class="check"><input id="fix" type="checkbox"> Ground fix (post-processing)</label>
+      <button class="primary" id="go">Generate</button>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div class="presets">
+        <button class="secondary" data-t="0.5">T = 0.5 (safe, copies)</button>
+        <button class="secondary" data-t="1.0">T = 1.0</button>
+        <button class="secondary" data-t="1.5">T = 1.5 (wild)</button>
+      </div>
+      <span class="note" id="modelinfo"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <strong id="title">Generated level</strong>
+      <div class="presets">
+        <button class="secondary" id="panbtn">Camera pan</button>
+        <button class="secondary" id="dl">Download .txt</button>
+      </div>
+    </div>
+    <div class="pan" id="panbox" hidden>
+      <span class="pan-label" id="panlabel">camera pan (not gameplay)</span>
+      <canvas id="pancanvas"></canvas>
+    </div>
+    <div class="levelwrap" id="levelwrap" style="margin-top:10px"><canvas id="canvas"></canvas></div>
+    <p class="note">Scroll sideways to see the whole level.</p>
+    <p class="note" id="seednote"></p>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div class="grid2">
+    <div class="card">
+      <strong>Metrics for this level</strong>
+      <table id="metrics" style="margin-top:8px">
+        <thead><tr><th>metric</th><th>this level</th><th>real levels (mean)</th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="note">Copy rate = share of 8-column windows found exactly in the 13 training levels. Its reference is the 2 held-out real levels.</p>
+    </div>
+    <div class="card">
+      <strong>Raw output (same format as the dataset)</strong>
+      <pre id="raw" style="margin-top:8px"></pre>
+    </div>
+  </div>
+</section>
+
+<section id="tab-eval" hidden>
+  <div class="card charts">
+    <strong>50 levels per temperature vs the 15 real levels</strong>
+    <p class="note">Produced by <code>python -m src.evaluate</code>. Images are read from the outputs/ folder.</p>
+    <img src="/outputs/eval/distributions.png" alt="Metric distributions: real levels vs generated levels at three temperatures">
+    <img src="/outputs/eval/temperature.png" alt="Each metric plotted against sampling temperature">
+    <img src="/outputs/train_curve.png" alt="Training and validation loss per epoch" style="max-width:640px">
+  </div>
+</section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let TILES = {}, REAL = {}, last = null, panTimer = null;
+const PX = 14;
+
+const METRIC_ROWS = [
+  ["widest_gap", "Widest gap in ground row (tiles)", (v) => v.toFixed(0)],
+  ["ground_fraction", "Ground fraction", (v) => v.toFixed(2)],
+  ["enemies_per_100", "Enemies per 100 columns", (v) => v.toFixed(1)],
+  ["qblocks_per_100", "Question blocks per 100 columns", (v) => v.toFixed(1)],
+  ["pipes_valid", "Pipes valid", (v) => (v >= 0.5 ? "yes" : "no")],
+  ["copy_rate", "Copy rate (8-col windows)", (v) => v.toFixed(2)],
+];
+
+function drawGrid(canvas, rows, seedCols = 0, px = PX) {
+  const h = rows.length, w = rows[0].length;
+  canvas.width = w * px; canvas.height = h * px;
+  const ctx = canvas.getContext("2d");
+  for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+    const t = rows[r][c];
+    ctx.fillStyle = (TILES[t] || { colour: "#ff00ff" }).colour;
+    ctx.fillRect(c * px, r * px, px, px);
+    if (t !== "-") { ctx.strokeStyle = "rgba(0,0,0,.35)"; ctx.strokeRect(c * px + .5, r * px + .5, px - 1, px - 1); }
+  }
+  if (seedCols) {  // grey veil over the real seed columns + a divider
+    ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.fillRect(0, 0, seedCols * px, h * px);
+    ctx.fillStyle = "#000"; ctx.fillRect(seedCols * px - 1, 0, 2, h * px);
+    ctx.font = "11px system-ui"; ctx.fillText("real seed", 4, 12);
+  }
+}
+
+function render(data) {
+  last = data;
+  const seedW = data.seed_rows[0].length;
+  const combined = data.rows.map((r, i) => data.seed_rows[i] + r);
+  drawGrid($("canvas"), combined, seedW);
+  const m = data.metrics;
+  $("title").textContent = `Generated level - ${data.rows[0].length} columns, T=${$("temperature").value}` +
+    (Number($("topk").value) ? `, top-k=${$("topk").value}` : "") +
+    ($("fix").checked ? ` + ground fix (${data.gaps_filled} gaps filled)` : " (raw model output)");
+  $("seednote").textContent = `Left of the line: ${seedW} real seed columns from ${data.seed_level} (columns ${data.seed_start}-${data.seed_start + seedW - 1}), not part of the output. Random seed ${data.seed} - type it into "Random seed" to get the same level again.`;
+  const present = new Set(data.rows.join(""));
+  $("legend").innerHTML = Object.entries(TILES).filter(([t]) => present.has(t))
+    .map(([t, v]) => `<span><i class="sw" style="background:${v.colour}"></i>${v.label} '${t}'</span>`).join("");
+  $("metrics").querySelector("tbody").innerHTML = METRIC_ROWS.map(([k, label, f]) => {
+    const real = k === "pipes_valid" ? `${Math.round(REAL[k] * 100)}% valid` : f(REAL[k]);
+    let val = f(m[k]);
+    if (k === "pipes_valid") val = m[k] ? `<span class="ok">yes</span>` : `<span class="bad">no (${m.pipe_errors} errors)</span>`;
+    return `<tr><td>${label}</td><td class="num">${val}</td><td class="num">${real}</td></tr>`;
+  }).join("");
+  $("raw").textContent = data.text;
+  stopPan();
+}
+
+async function generate() {
+  const btn = $("go"); btn.disabled = true; btn.textContent = "Generating...";
+  const p = new URLSearchParams({ temperature: $("temperature").value, top_k: $("topk").value || 0,
+    length: $("length").value || 200, seed: $("seed").value, seed_level: $("seedlevel").value,
+    fix_ground: $("fix").checked ? 1 : 0 });
+  try {
+    const res = await fetch("/api/generate?" + p);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    render(data);
+  } catch (e) { alert("Error: " + e.message); }
+  btn.disabled = false; btn.textContent = "Generate";
+}
+
+function stopPan() { clearInterval(panTimer); panTimer = null; $("panbox").hidden = true; $("panbtn").textContent = "Camera pan"; }
+function startPan() {
+  if (!last) return;
+  const rows = last.rows, view = 32, px = 16, w = rows[0].length;
+  const full = document.createElement("canvas"); drawGrid(full, rows, 0, px);
+  const pc = $("pancanvas"); pc.width = view * px; pc.height = rows.length * px;
+  const ctx = pc.getContext("2d"); let x = 0;
+  $("panbox").hidden = false; $("panbtn").textContent = "Stop pan";
+  panTimer = setInterval(() => {
+    ctx.drawImage(full, x * px / 4, 0, view * px, pc.height, 0, 0, view * px, pc.height);
+    $("panlabel").textContent = `camera pan (not gameplay) - column ${Math.floor(x / 4)}`;
+    x += 1; if (x / 4 > w - view) x = 0;
+  }, 30);
+}
+
+$("temperature").addEventListener("input", (e) => $("tval").textContent = Number(e.target.value).toFixed(2));
+$("go").addEventListener("click", generate);
+document.querySelectorAll("[data-t]").forEach((b) => b.addEventListener("click", () => {
+  $("temperature").value = b.dataset.t; $("tval").textContent = Number(b.dataset.t).toFixed(2); generate();
+}));
+$("panbtn").addEventListener("click", () => panTimer ? stopPan() : startPan());
+$("dl").addEventListener("click", () => {
+  if (!last) return;
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([last.text], { type: "text/plain" }));
+  a.download = `generated_T${$("temperature").value}_seed${last.seed}.txt`; a.click();
+});
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+  document.querySelectorAll(".tab").forEach((x) => x.setAttribute("aria-selected", x === t));
+  $("tab-gen").hidden = t.dataset.tab !== "gen"; $("tab-eval").hidden = t.dataset.tab !== "eval";
+}));
+
+fetch("/api/info").then((r) => r.json()).then((info) => {
+  TILES = info.tiles; REAL = info.real_means;
+  $("seedlevel").innerHTML += info.train_levels.map((n) => `<option>${n}</option>`).join("");
+  $("modelinfo").textContent = `Model: best epoch ${info.epoch}, val acc ${(info.val_acc * 100).toFixed(1)}%, ` +
+    `${info.vocab_size} column tokens, running on ${info.device}`;
+  $("seed").value = 42; generate().then(() => { $("seed").value = ""; });
+});
+</script>
+</body>
+</html>
